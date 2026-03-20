@@ -19,7 +19,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
-from agent import collect_ir_info, evaluate_and_prioritize, organize_ir_table
+from agent import collect_ir_info, estimate_cost, evaluate_and_prioritize, organize_ir_table
 from output import (
     create_company_folder,
     create_ir_excel,
@@ -127,6 +127,27 @@ def analyze(
     console.print(f"[bold]出力先:[/] {output_dir.resolve()}\n")
 
     client = anthropic.Anthropic(api_key=get_api_key())
+
+    # コスト見積もりと確認
+    console.print("[dim]コスト見積もりを計算中...[/]")
+    try:
+        est = estimate_cost(client, company_list)
+        table = Table(show_header=False, box=None, padding=(0, 2))
+        table.add_column(style="dim")
+        table.add_column(style="bold")
+        table.add_row("モデル", est["model"])
+        table.add_row("対象企業数", f"{est['num_companies']}社")
+        table.add_row("推定inputトークン", f"{est['estimated_total_input_tokens']:,}")
+        table.add_row("推定outputトークン", f"{est['estimated_total_output_tokens']:,}")
+        table.add_row("推定コスト", f"[yellow]~${est['estimated_cost_usd']:.2f} USD[/]")
+        console.print(table)
+        console.print("[dim]※ ループ回数・web検索結果により実際のコストは変動します[/]\n")
+        answer = typer.confirm("実行しますか？", default=True)
+        if not answer:
+            console.print("[yellow]キャンセルしました。[/]")
+            raise typer.Exit(0)
+    except anthropic.APIError as e:
+        console.print(f"[yellow]見積もり取得失敗（スキップ）: {e}[/]\n")
 
     all_organized: list[dict] = []
     ir_data_map: dict[str, dict] = {}

@@ -20,11 +20,64 @@ from config import (
 
 MODEL = "claude-sonnet-4-6"
 
+# モデル単価 (USD / token)
+_INPUT_COST_PER_TOKEN = 3.0 / 1_000_000   # $3 / MTok
+_OUTPUT_COST_PER_TOKEN = 15.0 / 1_000_000  # $15 / MTok
+
 # Claude が使用するツール定義
 TOOLS: list[dict] = [
     {"type": "web_search_20260209", "name": "web_search"},
     {"type": "web_fetch_20260209", "name": "web_fetch"},
 ]
+
+
+def estimate_cost(
+    client: anthropic.Anthropic,
+    company_names: list[str],
+    max_iterations: int = 5,
+) -> dict:
+    """
+    実行前のコスト見積もり。
+    count_tokens API で初回リクエストのトークン数を計測し、
+    ループ増加・企業数・ステップ数を加味した推定コストを返す。
+    """
+    perspectives_text = "\n".join(f"- {p}" for p in IR_ANALYSIS_PERSPECTIVES)
+    system = IR_COLLECTION_SYSTEM_PROMPT.format(perspectives=perspectives_text)
+
+    # 代表企業1社で初回inputトークンを計測
+    sample_company = company_names[0]
+    user_message = f"「{sample_company}」のIR情報を収集してください。"
+
+    token_response = client.messages.count_tokens(
+        model=MODEL,
+        system=system,
+        tools=TOOLS,  # type: ignore[arg-type]
+        messages=[{"role": "user", "content": user_message}],
+    )
+    base_input_tokens = token_response.input_tokens
+
+    # ループごとにinputが累積する分を加味（平均2倍と仮定）
+    estimated_input_per_company = base_input_tokens * max_iterations * 2
+    # outputはmax_tokensの半分程度と仮定
+    estimated_output_per_company = 4096 // 2 * max_iterations
+
+    num_companies = len(company_names)
+    total_input = estimated_input_per_company * num_companies
+    total_output = estimated_output_per_company * num_companies
+
+    estimated_cost_usd = (
+        total_input * _INPUT_COST_PER_TOKEN
+        + total_output * _OUTPUT_COST_PER_TOKEN
+    )
+
+    return {
+        "model": MODEL,
+        "num_companies": num_companies,
+        "base_input_tokens": base_input_tokens,
+        "estimated_total_input_tokens": total_input,
+        "estimated_total_output_tokens": total_output,
+        "estimated_cost_usd": estimated_cost_usd,
+    }
 
 
 def _run_agent_loop(
