@@ -31,7 +31,7 @@ def _run_agent_loop(
     client: anthropic.Anthropic,
     system: str,
     user_message: str,
-    max_iterations: int = 10,
+    max_iterations: int = 5,
 ) -> str:
     """
     Claude のエージェントループ。
@@ -45,9 +45,8 @@ def _run_agent_loop(
 
         with client.messages.stream(
             model=MODEL,
-            max_tokens=8192,
+            max_tokens=4096,
             system=system,
-            thinking={"type": "adaptive"},
             tools=TOOLS,  # type: ignore[arg-type]
             messages=messages,
         ) as stream:
